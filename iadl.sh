@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
   #==============================================
-  # Project: iadl.sh
+  # Project: iadl.sh v1.1
   # Author:  ConzZah / (c) 2026
-  # Last Modification: 2/6/26 6:06 AM
+  # Last Modification: 2/8/26 4:30 AM
   #==============================================
 
 init () {
@@ -12,6 +12,9 @@ for dep in $deps; do
 ! command -v "$dep" >/dev/null && \
 echo -e "\n--> MISSING DEPENDENCY: $dep\n" && exit 1
 done
+
+## if $1 is -fn, set flag and shift. useful in scripts
+fn=""; [ "$1" = '-fn' ] && fn="y" && shift
 
 url=""; base_url="https://archive.org"
 [ -z "$1" ] && echo -e "\n--> PLS SUPPLY SOME ARCHIVE.ORG LINK\n" && exit 1
@@ -28,31 +31,36 @@ grep -q "$base_url/details.*" <<< "$url" && url="${url/details/download}"
 
 
 browse () {
-html=""; items=""; header=""
+html=""; items=""; header=""; location=""; last_char=""
 
-## count_slashes, if we have 4 slashes in the url, we're missing the trailing slash, add it.
-count_slashes && [ "$sc" = "4" ] && url="${url}/" && count_slashes
+## count slashes in the url, if we have 4 slashes, we're missing the trailing slash, add it.
+sc="$(grep -o '/' <<< "$url"| wc -l)" && [ "$sc" = "4" ] && sc="$((sc + 1))" && url="${url}/"
 
 ## get header
 header="$(curl -sLI "$url")"
 
-## get content-type to figure out what we're dealing with
-content_type="$(grep -o 'content-type.*' <<< "$header"| tail -n1| grep -o 'text/html')"
+## get $location to figure out what we're dealing with
+location="$(grep -o 'location.*' <<< "$header"| grep -v '.onion')"
 
-## if content-type is text/html, check if we are in a subdirectory, 
-## add a trailing slash to $url and increment $sc by 1, should that be true
-[ "$content_type" = "text/html" ] && {
-[ "$(grep location <<< "$header"| grep -o 'items.*'| tail -n1| rev| cut -c 2)" = '/' ] && \
-sc="$((sc + 1))" && url="${url}/"
-}
+## NOTE: $location will only contain anything if:
+## - the input is a direct link to a file, OR
+## - the user is accessing a subdir and forgot the trailing slash
+## we can find this out by checking if the $last_char of location is equal to '/'
+[ -n "$location" ] && {
 
-## if content-type is not text/html, then our input must be a direct link to a file
+last_char="$(grep -o 'items.*'  <<< "$location"| tail -n1| rev| cut -c 2)"
+
+[ "$last_char" = '/' ] && sc="$((sc + 1))" && url="${url}/"
+
+## should $last_char NOT be equal to '/' then our input must be a direct link to a file 
 ## in which case, we get rid of the filename in $url and assign it to $chosen_item 
-[ "$content_type" != "text/html" ] && {
+[ "$last_char" != '/' ] && {
 chosen_item="$(echo "$url"| rev| cut -d '/' -f 1| rev)"
 url="$(echo "$url"| rev| cut -d '/' -f 2-| rev)"
 sc="$((sc - 1))"; url="${url}/"
 }
+}
+
 
 ## fetch $html
 html="$(curl -sL "$url")"
@@ -118,10 +126,14 @@ sc="$((sc + 1))" && url="${url}${chosen_item}" && \
 chosen_item="" && chosen_item_fsize="" && browse
 }
 
-
-count_slashes () { sc="$(grep -o '/' <<< "$url"| wc -l)" ;} ### <-- counts slashes in $url
-
-download () { echo -e "\n--> DOWNLOADING: $chosen_item_hr ~ $chosen_item_fsize\n"; curl -#Lo "$chosen_item_hr" "$url"; exit ;}
+download () {
+## if the '-fn' option was specified, only echo the filename
+[ -n "$fn" ] && echo "$chosen_item_hr"
+## otherwise show everything
+[ -z "$fn" ] && echo -e "\n--> DOWNLOADING: $chosen_item_hr ~ $chosen_item_fsize\n"
+## download the file and exit
+curl -#Lo "$chosen_item_hr" "$url" && exit 0 || exit 1
+}
 
 
 init "$@"; browse
