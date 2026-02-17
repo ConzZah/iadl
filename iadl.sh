@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
   #==============================================
-  # Project: iadl.sh v1.3
+  # Project: iadl.sh v1.4
   # Author:  ConzZah / (c) 2026
-  # Last Modification: 2/17/26 10:47 AM
+  # Last Modification: 2/17/26 12:50 PM
   #==============================================
 
 init () {
@@ -19,27 +19,34 @@ fn=""; [ "$1" = '-fn' ] && fn="y" && shift
 url=""; base_url="https://archive.org"
 [ -z "$1" ] && printf "\n--> PLS SUPPLY SOME ARCHIVE.ORG LINK\n\n" && exit 1
 
-## get url
+## get $url
 [ -n "$1" ] && url="$1"
 
-## make sure url is valid
+## make sure $url is valid
 printf "%s" "$url"| grep -vq "$base_url.*" && printf "\n --> THIS ISN'T A VALID ARCHIVE.ORG LINK\n\n" && exit 1
 
-## should url contain 'details', replace it with 'download'
+## should $url contain 'details', replace it with 'download'
 printf "%s" "$url"| grep -q "$base_url/details.*" && url="$(printf "%s" "$url"| sed 's#details#download#')"
 
-## create tmpdir if nonexistant.
+## create $tmpdir if nonexistant.
 [ ! -f '.tmpdir' ] || [ ! -d "$(cat '.tmpdir')" ] && \
 tmpdir="$(mktemp -d)" && printf "%s" "$tmpdir" > '.tmpdir'
 
 [ -f ".tmpdir" ] && [ -d "$(cat '.tmpdir')" ] && tmpdir="$(cat '.tmpdir')" || exit 1
 
-## set tmpdir paths
+## set $tmpdir paths
+header="$tmpdir/header"
 raw_html="$tmpdir/raw.html"
 trun_html="$tmpdir/trun.html"
 items="$tmpdir/items"
 fsizes="$tmpdir/fsizes"
 index="$tmpdir/index"
+
+## clean up $tmpfiles in $tmpdir, should they exist
+tmpfiles="$header $raw_html $trun_html $items $fsizes $index"
+for tmpfile in $tmpfiles; do
+[ -f "$tmpfile" ] && rm -f "$tmpfile"
+done
 }
 
 
@@ -47,8 +54,14 @@ browse () {
 ## count slashes in the url, if we have 4 slashes, we're missing the trailing slash, add it.
 sc="$(printf "%s" "$url"| grep -o '/'| wc -l)" && [ "$sc" = "4" ] && sc="$((sc + 1))" && url="${url}/"
 
+## get $header
+curl -sLIo "$header" "$url"
+
+## check $header for 404 and exit if we got one
+grep -q '404' "$header" && printf "\n--> ERROR 404\n\n" && exit 1
+
 ## get $location to figure out what we're dealing with
-location="$(curl -sLI "$url"| grep -o 'location.*'| grep -v '.onion')"
+location="$(grep -o 'location.*' "$header" | grep -v '.onion')"
 
 ## NOTE: $location will only contain anything if:
 ## - the input is a direct link to a file, OR
@@ -71,9 +84,6 @@ sc="$((sc - 1))"; url="${url}/" ;}
 
 ## fetch $raw_html
 curl -sLo "$raw_html" "$url"
-
-## check for 404 and exit if we got one
-grep -q '404 Not Found' "$raw_html" && printf "\n--> ERROR 404\n\n" && exit 1
 
 ## truncate $raw_html to allow for faster processing
 grep -A9999 '<tbody>' "$raw_html"| grep -B9999 '</tbody>' > "$trun_html"
